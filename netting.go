@@ -1,22 +1,25 @@
-package main
+package netting
 
 import "os"
 import "fmt"
 import (
 	"bufio"
-	"strconv"
 	"github.com/gonum/graph/simple"
 	"github.com/gonum/graph/topo"
 	"math"
+	"strconv"
 )
 
-func check(e error) {
-	if e != nil {
-		panic(e)
-	}
+type NettingTable struct {
+	graph *simple.DirectedGraph
 }
 
-func calcH(g *simple.DirectedGraph) ([]float64) {
+func (this *NettingTable) Init() {
+	this.graph = simple.NewDirectedGraph(0, 0)
+}
+
+func (this *NettingTable) CalcH() []float64 {
+	g := this.graph
 	N := len(g.Nodes())
 	h := make([]float64, N)
 	for j := 0; j < N; j++ {
@@ -28,7 +31,8 @@ func calcH(g *simple.DirectedGraph) ([]float64) {
 	return h
 }
 
-func calcL1(g *simple.DirectedGraph) (float64) {
+func (this *NettingTable) CalcL1() float64 {
+	g := this.graph
 	N := len(g.Nodes())
 	cAbsSum := 0.0
 	for i := 0; i < N; i++ {
@@ -37,11 +41,12 @@ func calcL1(g *simple.DirectedGraph) (float64) {
 			cAbsSum += math.Abs(w)
 		}
 	}
-	L1 := cAbsSum / float64(N * (N - 1)) * 2.0
+	L1 := cAbsSum / float64(N*(N-1)) * 2.0
 	return L1
 }
 
-func calcL2(g *simple.DirectedGraph) (float64) {
+func (this *NettingTable) CalcL2() float64 {
+	g := this.graph
 	N := len(g.Nodes())
 	cQuadSum := 0.0
 	for i := 0; i < N; i++ {
@@ -50,11 +55,66 @@ func calcL2(g *simple.DirectedGraph) (float64) {
 			cQuadSum += math.Pow(w, 2)
 		}
 	}
-	L2 := math.Sqrt(cQuadSum / float64(N * (N - 1)) * 2.0)
+	L2 := math.Sqrt(cQuadSum / float64(N*(N-1)) * 2.0)
 	return L2
 }
 
-func addNegativeEdges(g *simple.DirectedGraph) {
+func (this *NettingTable) AddCounterParty() (CounterPartyID int) {
+	g := this.graph
+	CounterPartyID = g.NewNodeID()
+	g.AddNode(simple.Node(CounterPartyID))
+	return
+}
+
+func (this *NettingTable) AddClaim(SrcCounterPartyID int, DstCounterPartyID int, Value float64) {
+	graph := this.graph
+	sourceNode := simple.Node(SrcCounterPartyID)
+	destinationNode := simple.Node(DstCounterPartyID)
+	if graph.Has(sourceNode) && graph.Has(destinationNode) && (Value > 0) {
+		newEdge := simple.Edge{F: graph.Node(SrcCounterPartyID), T: graph.Node(DstCounterPartyID), W: Value}
+		graph.SetEdge(newEdge)
+	}
+}
+
+func (this *NettingTable) Optimize() {
+	graph := this.graph
+
+	// Find all cycles in graph
+	cycles := topo.CyclesIn(graph)
+	//log.Debugf("Number of cycles in graph: %d \n", len(cycles))
+
+	// Loop optimize graph
+	counter := 0
+	for _, cycle := range cycles {
+		// find min weight in cycle
+		minWeight := math.MaxFloat64
+		for i := 0; i < len(cycle)-1; i++ {
+			weight := graph.Edge(cycle[i], cycle[i+1]).Weight()
+			if weight < minWeight {
+				minWeight = weight
+			}
+		}
+		if minWeight == 0.0 {
+			counter++
+			continue
+		}
+
+		// subtract
+		for i := 0; i < len(cycle)-1; i++ {
+			oldEdge := graph.Edge(cycle[i], cycle[i+1])
+			newEdge := simple.Edge{
+				F: oldEdge.From(),
+				T: oldEdge.To(),
+				W: oldEdge.Weight() - minWeight}
+			graph.RemoveEdge(oldEdge)
+			graph.SetEdge(newEdge)
+		}
+	}
+	//log.Debugf("%d cycles were skipped.\n", counter)
+}
+
+func (this *NettingTable) addNegativeEdges() {
+	g := this.graph
 	N := len(g.Nodes())
 	for j := 0; j < N; j++ {
 		J := g.Node(j)
@@ -70,10 +130,14 @@ func addNegativeEdges(g *simple.DirectedGraph) {
 	}
 }
 
-func printGraph(g *simple.DirectedGraph) {
+func (this *NettingTable) print() {
+	tableWithNegativeValues := this.makeACopy()
+	tableWithNegativeValues.addNegativeEdges()
+	g := tableWithNegativeValues.graph
+
 	fmt.Println("")
 	N := len(g.Nodes())
-	h := calcH(g)
+	h := this.CalcH()
 	for j := 0; j < N; j++ {
 		for i := 0; i < N; i++ {
 			w, _ := g.Weight(g.Node(j), g.Node(i))
@@ -81,10 +145,29 @@ func printGraph(g *simple.DirectedGraph) {
 		}
 		fmt.Printf(" | %9.f \n", h[j])
 	}
-	fmt.Printf("L1 norm: %9.2f, L2 norm: %9.2f \n\n", calcL1(g), calcL2(g))
+	fmt.Printf("L1 norm: %9.2f, L2 norm: %9.2f \n\n", this.CalcL1(), this.CalcL2())
+}
+
+func (this *NettingTable) makeACopy() (copy NettingTable) {
+	copy.Init()
+	graph := this.graph
+	graphCopy := copy.graph
+	for _, _ = range graph.Nodes() {
+		copy.AddCounterParty()
+	}
+	for _, edge := range graph.Edges() {
+		graphCopy.SetEdge(edge)
+	}
+	return
 }
 
 func main() {
+	check := func(e error) {
+		if e != nil {
+			panic(e)
+		}
+	}
+
 	if len(os.Args) != 2 {
 		fmt.Println("Provide a file name as an command line argument.")
 		return
@@ -113,78 +196,33 @@ func main() {
 		fmt.Println("reading input: " + err.Error())
 	}
 
-	// Create graph object
-	N := int(math.Sqrt(float64(len(data))));
-	fmt.Printf("Input graph has %d nodes.\n\n", N)
-	graph := simple.NewDirectedGraph(0, 0)
+	N := int(math.Sqrt(float64(len(data))))
+	fmt.Printf("Input table has %d CPs.\n\n", N)
 
-	// Add graph nodes
+	// Create Netting Table object
+	table := NettingTable{}
+	table.Init()
+
+	// Add CPs
 	for i := 0; i < N; i++ {
-		newNodeId := graph.NewNodeID()
-		//fmt.Println("Adding new node with ID: " + strconv.Itoa(newNodeId))
-		graph.AddNode(simple.Node(newNodeId))
+		cPID := table.AddCounterParty()
+		fmt.Println("Adding new Counter Party with ID: " + strconv.Itoa(cPID))
 	}
 
-	// Add graph edges (only positive)
+	// Add CP claims
 	for j := 0; j < N; j++ {
 		for i := 0; i < N; i++ {
-			weight := data[i + j*N]
-			if weight > 0.0 {
-				edge := simple.Edge{F: graph.Node(j), T: graph.Node(i), W: weight}
-				graph.SetEdge(edge)
-			}
+			weight := data[i+j*N]
+			table.AddClaim(j, i, weight)
 		}
 	}
 
-	// Copy the graph and add negative edges to print graph and its h
-	graphWithNegatives := simple.NewDirectedGraph(0, 0)
-	for _, _ = range graph.Nodes() {
-		graphWithNegatives.AddNode(simple.Node(graphWithNegatives.NewNodeID()))
-	}
-	for _, edge := range graph.Edges() {
-		graphWithNegatives.SetEdge(edge)
-	}
-	addNegativeEdges(graphWithNegatives)
-	printGraph(graphWithNegatives)
+	// Print the table
+	table.print()
 
-	// Find all cycles in graph
-	cycles := topo.CyclesIn(graph)
-	fmt.Printf("Number of cycles in graph: %d \n", len(cycles))
-	counter := 0
-	for _, cycle := range cycles {
-		//fmt.Printf("%+v\n", cycle)
+	// Run Netting Optimization
+	table.Optimize()
 
-		// find min weight in cycle
-		minWeight := math.MaxFloat64
-		for i := 0; i < len(cycle) - 1; i++ {
-			weight := graph.Edge(cycle[i], cycle[i + 1]).Weight()
-			if weight < minWeight {
-				minWeight = weight
-			}
-		}
-		if minWeight == 0.0 {
-			counter++
-			continue
-		}
-
-		// subtract
-		for i := 0; i < len(cycle) - 1; i++ {
-			oldEdge := graph.Edge(cycle[i], cycle[i + 1])
-			newEdge := simple.Edge{
-				F: oldEdge.From(),
-				T: oldEdge.To(),
-				W: oldEdge.Weight() - minWeight}
-			graph.RemoveEdge(oldEdge)
-			graph.SetEdge(newEdge)
-		}
-	}
-	fmt.Printf("%d cycles were skipped.\n", counter)
-
-	// Add negative edges and print the results
-	addNegativeEdges(graph)
-	printGraph(graph)
+	// Print the results
+	table.print()
 }
-
-
-
-
