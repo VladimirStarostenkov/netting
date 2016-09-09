@@ -1,21 +1,78 @@
 package netting
 
-import "os"
-import "fmt"
 import (
-	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"github.com/gonum/graph/simple"
 	"github.com/gonum/graph/topo"
 	"math"
-	"strconv"
 )
 
 type NettingTable struct {
 	graph *simple.DirectedGraph
 }
 
+type graphBytes struct {
+	Nodes []int
+	Edges []edge
+}
+
+type edge struct {
+	From   int     `json:"F"`
+	To     int     `json:"T"`
+	Weight float64 `json:"V"`
+}
+
 func (this *NettingTable) Init() {
 	this.graph = simple.NewDirectedGraph(0, 0)
+}
+
+func (this *NettingTable) InitFromBytes(bytes []byte) error {
+	// Pre-init
+	this.Init()
+
+	// From Bytes
+	var nodesAndEdges graphBytes
+	err := json.Unmarshal(bytes, &nodesAndEdges)
+	if err != nil {
+		return err
+	}
+
+	// Add Nodes
+	for _ = range nodesAndEdges.Nodes {
+		this.AddCounterParty()
+	}
+
+	// Add Edges
+	for _, edge := range nodesAndEdges.Edges {
+		this.AddClaim(edge.From, edge.To, edge.Weight)
+	}
+
+	return nil
+}
+
+func (this *NettingTable) ToBytes() ([]byte, error) {
+	// Collect Nodes
+	thisNodes := []int{}
+	for _, node := range this.graph.Nodes() {
+		thisNodes = append(thisNodes, node.ID())
+	}
+
+	// Collect Edges
+	thisEdges := []edge{}
+	for _, e := range this.graph.Edges() {
+		thisEdges = append(thisEdges, edge{From: e.From().ID(), To: e.To().ID(), Weight: e.Weight()})
+	}
+
+	// To Bytes
+	nodesAndEdges := graphBytes{Nodes: thisNodes, Edges: thisEdges}
+	bytes, err := json.Marshal(nodesAndEdges)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
 }
 
 func (this *NettingTable) CalcH() []float64 {
@@ -72,6 +129,7 @@ func (this *NettingTable) AddClaim(SrcCounterPartyID int, DstCounterPartyID int,
 	destinationNode := simple.Node(DstCounterPartyID)
 	if graph.Has(sourceNode) && graph.Has(destinationNode) && (Value > 0) {
 		newEdge := simple.Edge{F: graph.Node(SrcCounterPartyID), T: graph.Node(DstCounterPartyID), W: Value}
+		//fmt.Printf("newEdge: %+v\n", newEdge)
 		graph.SetEdge(newEdge)
 	}
 }
@@ -130,22 +188,27 @@ func (this *NettingTable) addNegativeEdges() {
 	}
 }
 
-func (this *NettingTable) print() {
+func (this *NettingTable) toText() string {
 	tableWithNegativeValues := this.makeACopy()
 	tableWithNegativeValues.addNegativeEdges()
 	g := tableWithNegativeValues.graph
 
-	fmt.Println("")
+	var buf bytes.Buffer
+	buf.WriteString("\n")
+
 	N := len(g.Nodes())
-	h := this.CalcH()
+	h := tableWithNegativeValues.CalcH()
 	for j := 0; j < N; j++ {
 		for i := 0; i < N; i++ {
 			w, _ := g.Weight(g.Node(j), g.Node(i))
-			fmt.Printf("%9.f ", w)
+			buf.WriteString(fmt.Sprintf("%9.f ", w))
 		}
-		fmt.Printf(" | %9.f \n", h[j])
+		buf.WriteString(fmt.Sprintf(" | %9.f \n", h[j]))
 	}
-	fmt.Printf("L1 norm: %9.2f, L2 norm: %9.2f \n\n", this.CalcL1(), this.CalcL2())
+	buf.WriteString(fmt.Sprintf("L1 norm: %9.2f, L2 norm: %9.2f \n\n",
+		tableWithNegativeValues.CalcL1(), tableWithNegativeValues.CalcL2()))
+
+	return buf.String()
 }
 
 func (this *NettingTable) makeACopy() (copy NettingTable) {
@@ -159,70 +222,4 @@ func (this *NettingTable) makeACopy() (copy NettingTable) {
 		graphCopy.SetEdge(edge)
 	}
 	return
-}
-
-func main() {
-	check := func(e error) {
-		if e != nil {
-			panic(e)
-		}
-	}
-
-	if len(os.Args) != 2 {
-		fmt.Println("Provide a file name as an command line argument.")
-		return
-	}
-
-	fileName := os.Args[1]
-	file, err := os.Open(fileName)
-	check(err)
-
-	// Create scanner
-	scanner := bufio.NewScanner(bufio.NewReader(file))
-
-	// Set the split function for the scanning operation
-	scanner.Split(bufio.ScanWords)
-
-	// Count the words
-	count := 0
-	data := []float64{}
-	for scanner.Scan() {
-		count++
-		value, err := strconv.ParseFloat(scanner.Text(), 64)
-		check(err)
-		data = append(data, value)
-	}
-	if err := scanner.Err(); err != nil {
-		fmt.Println("reading input: " + err.Error())
-	}
-
-	N := int(math.Sqrt(float64(len(data))))
-	fmt.Printf("Input table has %d CPs.\n\n", N)
-
-	// Create Netting Table object
-	table := NettingTable{}
-	table.Init()
-
-	// Add CPs
-	for i := 0; i < N; i++ {
-		cPID := table.AddCounterParty()
-		fmt.Println("Adding new Counter Party with ID: " + strconv.Itoa(cPID))
-	}
-
-	// Add CP claims
-	for j := 0; j < N; j++ {
-		for i := 0; i < N; i++ {
-			weight := data[i+j*N]
-			table.AddClaim(j, i, weight)
-		}
-	}
-
-	// Print the table
-	table.print()
-
-	// Run Netting Optimization
-	table.Optimize()
-
-	// Print the results
-	table.print()
 }
