@@ -62,16 +62,23 @@ func TestNetting(t *testing.T) {
 	}
 
 	// Print the table
-	fmt.Print(table.toText())
+	fmt.Println(table.toText())
+	// Print stats
+	fmt.Printf("%s\n", table.GetStats())
 
 	// Run Netting Optimization
 	table.Optimize()
 
 	// Print the results
-	fmt.Print(table.toText())
+	fmt.Println(table.toText())
+	// Print stats
+	fmt.Printf("%s\n", table.GetStats())
 
 	// Print bytes
-	fmt.Println("\n\n")
-	bytes, _ := table.ToBytes()
-	fmt.Println(string(bytes))
+	fmt.Println("\nBytes:")
+	bts, _ := table.ToBytes()
+	fmt.Printf(string(bts))
+
+	// Get Claims
+	fmt.Printf("\nGet Claims for third: %s", table.GetClaims(2))
 }
