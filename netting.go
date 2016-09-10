@@ -13,7 +13,7 @@ type NettingTable struct {
 	graph *simple.DirectedGraph
 }
 
-type nettingTableStats struct {
+type NettingTableStats struct {
 	NumberOfCounterParties 	int	 `json:"number_of_counter_parties"`
 	NumberOfClaims 		int	 `json:"number_of_claims"`
 	MetricL1		float64	 `json:"metric_l1"`
@@ -99,6 +99,9 @@ func (this *NettingTable) CalcH() []float64 {
 func (this *NettingTable) CalcL1() float64 {
 	g := this.graph
 	N := len(g.Nodes())
+	if N == 0 {
+		return -1.0
+	}
 	cAbsSum := 0.0
 	for i := 0; i < N; i++ {
 		for j := i + 1; j < N; j++ {
@@ -113,6 +116,9 @@ func (this *NettingTable) CalcL1() float64 {
 func (this *NettingTable) CalcL2() float64 {
 	g := this.graph
 	N := len(g.Nodes())
+	if N == 0 {
+		return -1.0
+	}
 	cQuadSum := 0.0
 	for i := 0; i < N; i++ {
 		for j := i + 1; j < N; j++ {
@@ -225,7 +231,7 @@ func (this *NettingTable) GetStats() ([]byte) {
 	tableWithNegativeValues.addNegativeEdges()
 	g := tableWithNegativeValues.graph
 
-	stats := nettingTableStats{
+	stats := NettingTableStats{
 		NumberOfCounterParties: len(g.Nodes()),
 		NumberOfClaims: len(g.Edges()) / 2,
 		MetricL1: tableWithNegativeValues.CalcL1(),
@@ -235,6 +241,7 @@ func (this *NettingTable) GetStats() ([]byte) {
 	}
 
 	result, err := json.Marshal(stats)
+	//fmt.Printf("%s\n", string(result))
 	if err != nil {
 		fmt.Errorf("%s", err.Error())
 		return []byte{}
