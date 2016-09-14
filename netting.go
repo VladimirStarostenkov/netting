@@ -138,17 +138,29 @@ func (this *NettingTable) AddCounterParty() (CounterPartyID int) {
 }
 
 func (this *NettingTable) AddClaim(SrcCounterPartyID int, DstCounterPartyID int, Value float64) {
+	if (SrcCounterPartyID == DstCounterPartyID) {
+		return
+	}
 	graph := this.graph
 	sourceNode := simple.Node(SrcCounterPartyID)
 	destinationNode := simple.Node(DstCounterPartyID)
 	if graph.Has(sourceNode) && graph.Has(destinationNode) && (Value > 0) {
+		// 2 cases when an edge {source -> destination} or {destination -> source} already exists
 		if existingEdge := graph.Edge(sourceNode, destinationNode); existingEdge != nil {
 			Value += existingEdge.Weight()
 			graph.RemoveEdge(existingEdge)
+		} else if existingEdge := graph.Edge(destinationNode, sourceNode); existingEdge != nil {
+			Value -= existingEdge.Weight()
+			graph.RemoveEdge(existingEdge)
 		}
-		newEdge := simple.Edge{F: graph.Node(SrcCounterPartyID), T: graph.Node(DstCounterPartyID), W: Value}
-		//fmt.Printf("newEdge: %+v\n", newEdge)
-		graph.SetEdge(newEdge)
+
+		if Value > 0 {
+			newEdge := simple.Edge{F: graph.Node(SrcCounterPartyID), T: graph.Node(DstCounterPartyID), W: Value}
+			graph.SetEdge(newEdge)
+		} else if Value < 0 {
+			newEdge := simple.Edge{F: graph.Node(DstCounterPartyID), T: graph.Node(SrcCounterPartyID), W: -Value}
+			graph.SetEdge(newEdge)
+		}
 	}
 }
 
