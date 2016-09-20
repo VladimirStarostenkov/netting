@@ -7,6 +7,7 @@ import (
 	"github.com/gonum/graph/simple"
 	"github.com/gonum/graph/topo"
 	"math"
+	"sort"
 )
 
 type NettingTable struct {
@@ -14,11 +15,11 @@ type NettingTable struct {
 }
 
 type NettingTableStats struct {
-	NumberOfCounterParties 	int	 `json:"number_of_counter_parties"`
-	NumberOfClaims 		int	 `json:"number_of_claims"`
-	MetricL1		float64	 `json:"metric_l1"`
-	MetricL2		float64	 `json:"metric_l2"`
-	SumH			float64	 `json:"sum_of_h"`
+	NumberOfCounterParties int     `json:"number_of_counter_parties"`
+	NumberOfClaims         int     `json:"number_of_claims"`
+	MetricL1               float64 `json:"metric_l1"`
+	MetricL2               float64 `json:"metric_l2"`
+	SumH                   float64 `json:"sum_of_h"`
 }
 
 type graphBytes struct {
@@ -65,6 +66,7 @@ func (this *NettingTable) ToBytes() ([]byte, error) {
 	thisNodes := []int{}
 	for _, node := range this.graph.Nodes() {
 		thisNodes = append(thisNodes, node.ID())
+		sort.Ints(thisNodes)
 	}
 
 	// Collect Edges
@@ -138,7 +140,7 @@ func (this *NettingTable) AddCounterParty() (CounterPartyID int) {
 }
 
 func (this *NettingTable) AddClaim(SrcCounterPartyID int, DstCounterPartyID int, Value float64) {
-	if (SrcCounterPartyID == DstCounterPartyID) {
+	if SrcCounterPartyID == DstCounterPartyID {
 		return
 	}
 	graph := this.graph
@@ -208,7 +210,7 @@ func (this *NettingTable) Optimize() {
 	//log.Debugf("%d cycles were skipped.\n", counter)
 }
 
-func (this *NettingTable) GetClaims(CounterPartyID int) ([]byte) {
+func (this *NettingTable) GetClaims(CounterPartyID int) []byte {
 	tableWithNegativeValues := this.makeACopy()
 	tableWithNegativeValues.addNegativeEdges()
 	g := tableWithNegativeValues.graph
@@ -231,7 +233,7 @@ func (this *NettingTable) GetClaims(CounterPartyID int) ([]byte) {
 	return result
 }
 
-func (this *NettingTable) GetStats() ([]byte) {
+func (this *NettingTable) GetStats() []byte {
 	floatSum := func(vals []float64) (sum float64) {
 		for _, val := range vals {
 			sum += val
@@ -245,11 +247,10 @@ func (this *NettingTable) GetStats() ([]byte) {
 
 	stats := NettingTableStats{
 		NumberOfCounterParties: len(g.Nodes()),
-		NumberOfClaims: len(g.Edges()) / 2,
-		MetricL1: tableWithNegativeValues.CalcL1(),
-		MetricL2: tableWithNegativeValues.CalcL2(),
-		SumH: floatSum(tableWithNegativeValues.CalcH()),
-
+		NumberOfClaims:         len(g.Edges()) / 2,
+		MetricL1:               tableWithNegativeValues.CalcL1(),
+		MetricL2:               tableWithNegativeValues.CalcL2(),
+		SumH:                   floatSum(tableWithNegativeValues.CalcH()),
 	}
 
 	result, err := json.Marshal(stats)
@@ -279,6 +280,7 @@ func (this *NettingTable) addNegativeEdges() {
 		}
 	}
 }
+
 // internal
 func (this *NettingTable) toText() string {
 	tableWithNegativeValues := this.makeACopy()
@@ -302,6 +304,7 @@ func (this *NettingTable) toText() string {
 
 	return buf.String()
 }
+
 // internal
 func (this *NettingTable) makeACopy() (copy NettingTable) {
 	copy.Init()
